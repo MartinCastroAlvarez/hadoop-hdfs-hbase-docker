@@ -1,0 +1,508 @@
+version: '3'
+
+# ----------------------------------------------------------------------------------------------------
+# Docker volumes are a way to store persistent data outside of a Docker container's filesystem.
+# By default, any data that a Docker container writes to its filesystem is lost when the container
+# is deleted or recreated. Docker volumes allow you to attach a specific directory on the host
+# machine or a remote location as a data volume for a container, so that the container can read
+# from or write to the volume and the data persists even if the container is deleted.
+# ----------------------------------------------------------------------------------------------------
+volumes:
+  datanode:
+  namenode:
+  hadoop_historyserver:
+  hbase_data:
+  hbase_zookeeper_data:
+
+# ----------------------------------------------------------------------------------------------------
+# Docker networks are a way to connect Docker containers together, allowing them to communicate
+# with each other over a private network. When you create a Docker network, you can attach multiple
+# containers to the network, and they can communicate with each other using their container names
+# or IP addresses.
+# ----------------------------------------------------------------------------------------------------
+networks:
+  hbase:
+    external:
+      name: 'hbase'
+
+services:
+
+  # ----------------------------------------------------------------------------------------------------
+  # ZooKeeper is a centralized service for maintaining configuration information, naming, providing
+  # distributed synchronization, and providing group services. All of these kinds of services are
+  # used in some form or another by distributed applications. Each time they are implemented there
+  # is a lot of work that goes into fixing the bugs and race conditions that are inevitable. Because
+  # of the difficulty of implementing these kinds of services, applications initially usually skimp
+  # on them, which make them brittle in the presence of change and difficult to manage. Even when
+  # done correctly, different implementations of these services lead to management complexity when
+  # the applications are deployed.
+  # ----------------------------------------------------------------------------------------------------
+  zookeeper:
+    image: 'wurstmeister/zookeeper'
+    hostname: 'zookeeper'
+    networks:
+      - 'hbase'
+    container_name: 'zookeeper'
+    ports:
+      - '2181:2181'
+    environment:
+      ZOOKEEPER_CLIENT_PORT: 2181
+      ZOOKEEPER_TICK_TIME: 2000
+
+  # ----------------------------------------------------------------------------------------------------
+  # In Hadoop, the NameNode is a key component of the Hadoop Distributed File System (HDFS).
+  # It is responsible for managing the file system namespace and regulating access to files
+  # by clients. The NameNode is a centralized component that runs on a dedicated machine in
+  # the cluster, and it maintains the metadata about the files stored in HDFS, such as the
+  # file name, directory structure, and the location of blocks that make up the file.
+  #
+  # The NameNode stores this metadata in memory for fast access, and it also persists it on
+  # disk in the form of two files: fsimage and edits. The fsimage file contains a snapshot
+  # of the file system metadata, and the edits file contains a log of all the changes that
+  # have been made to the metadata since the last snapshot. Together, these files form a
+  # checkpoint of the file system state that can be used to recover the metadata in case of a failure.
+  #
+  # When a client wants to read or write a file in HDFS, it first contacts the NameNode to
+  # obtain information about the file, such as its location and the block IDs that make up
+  # the file. The NameNode then returns this information to the client, which can then communicate
+  # directly with the DataNodes that store the blocks.
+  # ----------------------------------------------------------------------------------------------------
+  namenode:
+    image: 'bde2020/hadoop-namenode:2.0.0-hadoop3.2.1-java8'
+    container_name: 'namenode'
+    hostname: 'namenode'
+    ports:
+      - '9870:9870'
+      - '9000:9000'
+    networks:
+      - 'hbase'
+    volumes:
+      - 'namenode:/hadoop/dfs/name'
+    environment:
+      CLUSTER_NAME: 'test'
+      CORE_CONF_fs_defaultFS: 'hdfs://namenode:9000'
+      CORE_CONF_hadoop_http_staticuser_user: 'root'
+      CORE_CONF_hadoop_proxyuser_hue_hosts: '*'
+      CORE_CONF_hadoop_proxyuser_hue_groups: '*'
+      CORE_CONF_io_compression_codecs: 'org.apache.hadoop.io.compress.SnappyCodec'
+      HDFS_CONF_dfs_webhdfs_enabled: 'true'
+      HDFS_CONF_dfs_permissions_enabled: 'false'
+      HDFS_CONF_dfs_namenode_datanode_registration_ip___hostname___check: 'false'
+      YARN_CONF_yarn_log___aggregation___enable: 'true'
+      YARN_CONF_yarn_log_server_url: 'http://historyserver:8188/applicationhistory/logs/'
+      YARN_CONF_yarn_resourcemanager_recovery_enabled: 'true'
+      YARN_CONF_yarn_resourcemanager_store_class: 'org.apache.hadoop.yarn.server.resourcemanager.recovery.FileSystemRMStateStore'
+      YARN_CONF_yarn_resourcemanager_scheduler_class: 'org.apache.hadoop.yarn.server.resourcemanager.scheduler.capacity.CapacityScheduler'
+      YARN_CONF_yarn_scheduler_capacity_root_default_maximum___allocation___mb: '8192'
+      YARN_CONF_yarn_scheduler_capacity_root_default_maximum___allocation___vcores: '4'
+      YARN_CONF_yarn_resourcemanager_fs_state___store_uri: '/rmstate'
+      YARN_CONF_yarn_resourcemanager_system___metrics___publisher_enabled: 'true'
+      YARN_CONF_yarn_resourcemanager_hostname: 'resourcemanager'
+      YARN_CONF_yarn_resourcemanager_address: 'resourcemanager:8032'
+      YARN_CONF_yarn_resourcemanager_scheduler_address: 'resourcemanager:8030'
+      YARN_CONF_yarn_resourcemanager_resource__tracker_address: 'resourcemanager:8031'
+      YARN_CONF_yarn_timeline___service_enabled: 'true'
+      YARN_CONF_yarn_timeline___service_generic___application___history_enabled: 'true'
+      YARN_CONF_yarn_timeline___service_hostname: 'historyserver'
+      YARN_CONF_mapreduce_map_output_compress: 'true'
+      YARN_CONF_mapred_map_output_compress_codec: 'org.apache.hadoop.io.compress.SnappyCodec'
+      YARN_CONF_yarn_nodemanager_resource_memory___mb: '16384'
+      YARN_CONF_yarn_nodemanager_resource_cpu___vcores: '8'
+      YARN_CONF_yarn_nodemanager_disk___health___checker_max___disk___utilization___per___disk___percentage: '98.5'
+      YARN_CONF_yarn_nodemanager_remote___app___log___dir: '/app-logs'
+      YARN_CONF_yarn_nodemanager_aux___services: 'mapreduce_shuffle'
+      MAPRED_CONF_mapreduce_framework_name: 'yarn'
+      MAPRED_CONF_mapred_child_java_opts: '-Xmx4096m'
+      MAPRED_CONF_mapreduce_map_memory_mb: '4096'
+      MAPRED_CONF_mapreduce_reduce_memory_mb: '8192'
+      MAPRED_CONF_mapreduce_map_java_opts: '-Xmx3072m'
+      MAPRED_CONF_mapreduce_reduce_java_opts: '-Xmx6144m'
+      MAPRED_CONF_yarn_app_mapreduce_am_env: 'HADOOP_MAPRED_HOME=/opt/hadoop-3.2.1/'
+      MAPRED_CONF_mapreduce_map_env: 'HADOOP_MAPRED_HOME=/opt/hadoop-3.2.1/'
+      MAPRED_CONF_mapreduce_reduce_env: 'HADOOP_MAPRED_HOME=/opt/hadoop-3.2.1/'
+
+  # ----------------------------------------------------------------------------------------------------
+  # In Hadoop, a DataNode is a component of the Hadoop Distributed File System (HDFS) that stores
+  # the actual data in the form of blocks. The DataNode is responsible for reading and writing data
+  # from the local file system, and for communicating with other DataNodes and the NameNode to manage
+  # the data stored in the cluster.
+  #
+  # Each DataNode in the HDFS cluster stores a subset of the blocks that make up the files in the
+  # file system. When a client wants to read or write a file, it first contacts the NameNode to
+  # obtain the locations of the blocks that make up the file. The client can then read or write
+  # the data directly from the DataNodes that store the blocks.
+  #
+  # DataNodes are designed to run on commodity hardware and can be added or removed from the cluster
+  # as needed to scale the storage capacity of the HDFS cluster. The HDFS architecture is designed
+  # to be fault-tolerant, so when a DataNode fails or becomes unavailable, the NameNode automatically
+  # replicates the blocks that were stored on the failed DataNode to other DataNodes in the cluster
+  # to ensure that the data is still available.
+  # ----------------------------------------------------------------------------------------------------
+  datanode1:
+    image: 'bde2020/hadoop-datanode:2.0.0-hadoop3.2.1-java8'
+    container_name: 'datenode1'
+    hostname: 'datanode1'
+    depends_on:
+      - 'namenode'
+    ports:
+      - '9864:9864'
+    networks:
+      - 'hbase'
+    volumes:
+      - 'datanode:/hadoop/dfs/data1'
+    environment:
+      SERVICE_PRECONDITION: 'namenode:9870'
+      CORE_CONF_fs_defaultFS: 'hdfs://namenode:9000'
+      CORE_CONF_hadoop_http_staticuser_user: 'root'
+      CORE_CONF_hadoop_proxyuser_hue_hosts: '*'
+      CORE_CONF_hadoop_proxyuser_hue_groups: '*'
+      CORE_CONF_io_compression_codecs: 'org.apache.hadoop.io.compress.SnappyCodec'
+      HDFS_CONF_dfs_webhdfs_enabled: 'true'
+      HDFS_CONF_dfs_permissions_enabled: 'false'
+      HDFS_CONF_dfs_namenode_datanode_registration_ip___hostname___check: 'false'
+      YARN_CONF_yarn_log___aggregation___enable: 'true'
+      YARN_CONF_yarn_log_server_url: 'http://historyserver:8188/applicationhistory/logs/'
+      YARN_CONF_yarn_resourcemanager_recovery_enabled: 'true'
+      YARN_CONF_yarn_resourcemanager_store_class: 'org.apache.hadoop.yarn.server.resourcemanager.recovery.FileSystemRMStateStore'
+      YARN_CONF_yarn_resourcemanager_scheduler_class: 'org.apache.hadoop.yarn.server.resourcemanager.scheduler.capacity.CapacityScheduler'
+      YARN_CONF_yarn_scheduler_capacity_root_default_maximum___allocation___mb: '8192'
+      YARN_CONF_yarn_scheduler_capacity_root_default_maximum___allocation___vcores: '4'
+      YARN_CONF_yarn_resourcemanager_fs_state___store_uri: '/rmstate'
+      YARN_CONF_yarn_resourcemanager_system___metrics___publisher_enabled: 'true'
+      YARN_CONF_yarn_resourcemanager_hostname: 'resourcemanager'
+      YARN_CONF_yarn_resourcemanager_address: 'resourcemanager:8032'
+      YARN_CONF_yarn_resourcemanager_scheduler_address: 'resourcemanager:8030'
+      YARN_CONF_yarn_resourcemanager_resource__tracker_address: 'resourcemanager:8031'
+      YARN_CONF_yarn_timeline___service_enabled: 'true'
+      YARN_CONF_yarn_timeline___service_generic___application___history_enabled: 'true'
+      YARN_CONF_yarn_timeline___service_hostname: 'historyserver'
+      YARN_CONF_mapreduce_map_output_compress: 'true'
+      YARN_CONF_mapred_map_output_compress_codec: 'org.apache.hadoop.io.compress.SnappyCodec'
+      YARN_CONF_yarn_nodemanager_resource_memory___mb: '16384'
+      YARN_CONF_yarn_nodemanager_resource_cpu___vcores: '8'
+      YARN_CONF_yarn_nodemanager_disk___health___checker_max___disk___utilization___per___disk___percentage: '98.5'
+      YARN_CONF_yarn_nodemanager_remote___app___log___dir: '/app-logs'
+      YARN_CONF_yarn_nodemanager_aux___services: 'mapreduce_shuffle'
+      MAPRED_CONF_mapreduce_framework_name: 'yarn'
+      MAPRED_CONF_mapred_child_java_opts: '-Xmx4096m'
+      MAPRED_CONF_mapreduce_map_memory_mb: '4096'
+      MAPRED_CONF_mapreduce_reduce_memory_mb: '8192'
+      MAPRED_CONF_mapreduce_map_java_opts: '-Xmx3072m'
+      MAPRED_CONF_mapreduce_reduce_java_opts: '-Xmx6144m'
+      MAPRED_CONF_yarn_app_mapreduce_am_env: 'HADOOP_MAPRED_HOME=/opt/hadoop-3.2.1/'
+      MAPRED_CONF_mapreduce_map_env: 'HADOOP_MAPRED_HOME=/opt/hadoop-3.2.1/'
+      MAPRED_CONF_mapreduce_reduce_env: 'HADOOP_MAPRED_HOME=/opt/hadoop-3.2.1/'
+  datanode2:
+    image: 'bde2020/hadoop-datanode:2.0.0-hadoop3.2.1-java8'
+    hostname: 'datanode2'
+    container_name: 'datenode2'
+    ports:
+      - '9865:9864'
+    networks:
+      - 'hbase'
+    volumes:
+      - 'datanode:/hadoop/dfs/data2'
+    environment:
+      SERVICE_PRECONDITION: 'namenode:9870'
+      CORE_CONF_fs_defaultFS: 'hdfs://namenode:9000'
+      CORE_CONF_hadoop_http_staticuser_user: 'root'
+      CORE_CONF_hadoop_proxyuser_hue_hosts: '*'
+      CORE_CONF_hadoop_proxyuser_hue_groups: '*'
+      CORE_CONF_io_compression_codecs: 'org.apache.hadoop.io.compress.SnappyCodec'
+      HDFS_CONF_dfs_webhdfs_enabled: 'true'
+      HDFS_CONF_dfs_permissions_enabled: 'false'
+      HDFS_CONF_dfs_namenode_datanode_registration_ip___hostname___check: 'false'
+      YARN_CONF_yarn_log___aggregation___enable: 'true'
+      YARN_CONF_yarn_log_server_url: 'http://historyserver:8188/applicationhistory/logs/'
+      YARN_CONF_yarn_resourcemanager_recovery_enabled: 'true'
+      YARN_CONF_yarn_resourcemanager_store_class: 'org.apache.hadoop.yarn.server.resourcemanager.recovery.FileSystemRMStateStore'
+      YARN_CONF_yarn_resourcemanager_scheduler_class: 'org.apache.hadoop.yarn.server.resourcemanager.scheduler.capacity.CapacityScheduler'
+      YARN_CONF_yarn_scheduler_capacity_root_default_maximum___allocation___mb: '8192'
+      YARN_CONF_yarn_scheduler_capacity_root_default_maximum___allocation___vcores: '4'
+      YARN_CONF_yarn_resourcemanager_fs_state___store_uri: '/rmstate'
+      YARN_CONF_yarn_resourcemanager_system___metrics___publisher_enabled: 'true'
+      YARN_CONF_yarn_resourcemanager_hostname: 'resourcemanager'
+      YARN_CONF_yarn_resourcemanager_address: 'resourcemanager:8032'
+      YARN_CONF_yarn_resourcemanager_scheduler_address: 'resourcemanager:8030'
+      YARN_CONF_yarn_resourcemanager_resource__tracker_address: 'resourcemanager:8031'
+      YARN_CONF_yarn_timeline___service_enabled: 'true'
+      YARN_CONF_yarn_timeline___service_generic___application___history_enabled: 'true'
+      YARN_CONF_yarn_timeline___service_hostname: 'historyserver'
+      YARN_CONF_mapreduce_map_output_compress: 'true'
+      YARN_CONF_mapred_map_output_compress_codec: 'org.apache.hadoop.io.compress.SnappyCodec'
+      YARN_CONF_yarn_nodemanager_resource_memory___mb: '16384'
+      YARN_CONF_yarn_nodemanager_resource_cpu___vcores: '8'
+      YARN_CONF_yarn_nodemanager_disk___health___checker_max___disk___utilization___per___disk___percentage: '98.5'
+      YARN_CONF_yarn_nodemanager_remote___app___log___dir: '/app-logs'
+      YARN_CONF_yarn_nodemanager_aux___services: 'mapreduce_shuffle'
+      MAPRED_CONF_mapreduce_framework_name: 'yarn'
+      MAPRED_CONF_mapred_child_java_opts: '-Xmx4096m'
+      MAPRED_CONF_mapreduce_map_memory_mb: '4096'
+      MAPRED_CONF_mapreduce_reduce_memory_mb: '8192'
+      MAPRED_CONF_mapreduce_map_java_opts: '-Xmx3072m'
+      MAPRED_CONF_mapreduce_reduce_java_opts: '-Xmx6144m'
+      MAPRED_CONF_yarn_app_mapreduce_am_env: 'HADOOP_MAPRED_HOME=/opt/hadoop-3.2.1/'
+      MAPRED_CONF_mapreduce_map_env: 'HADOOP_MAPRED_HOME=/opt/hadoop-3.2.1/'
+      MAPRED_CONF_mapreduce_reduce_env: 'HADOOP_MAPRED_HOME=/opt/hadoop-3.2.1/'
+
+  # ----------------------------------------------------------------------------------------------------
+  # In Hadoop, the Resource Manager is a key component of the YARN (Yet Another ResourceNegotiator)
+  # framework. It is responsible for managing the allocation of computing resources in a Hadoop cluster,
+  # such as CPU, memory, and disk, to various applications running on the cluster.
+  #
+  # The Resource Manager communicates with NodeManagers, which run on each machine in the cluster
+  # and manage the actual resources on that machine. The Resource Manager receives resource requests
+  # from applications running on the cluster and negotiates with the NodeManagers to allocate the
+  # necessary resources to each application. It also monitors the resource usage of each application
+  # and dynamically adjusts the resource allocation as needed.
+  #
+  # The Resource Manager also provides a web-based user interface for monitoring the status of
+  # applications running on the cluster and their resource usage. It can also be configured to
+  # use various scheduling policies, such as fair scheduling or capacity scheduling, to allocate
+  # resources to applications.
+  # ----------------------------------------------------------------------------------------------------
+  resourcemanager:
+    image: 'bde2020/hadoop-resourcemanager:2.0.0-hadoop3.2.1-java8'
+    container_name: 'yarn'
+    hostname: 'yarn'
+    ports:
+      - '8088:8088'
+    depends_on:
+      - 'namenode'
+      - 'datanode1'
+      - 'datanode2'
+    networks:
+      - 'hbase'
+    healthcheck:
+      disable: true
+    environment:
+      SERVICE_PRECONDITION: 'namenode:9870 datanode1:9864 datanode2:9864'
+      CORE_CONF_fs_defaultFS: 'hdfs://namenode:9000'
+      CORE_CONF_hadoop_http_staticuser_user: 'root'
+      CORE_CONF_hadoop_proxyuser_hue_hosts: '*'
+      CORE_CONF_hadoop_proxyuser_hue_groups: '*'
+      CORE_CONF_io_compression_codecs: 'org.apache.hadoop.io.compress.SnappyCodec'
+      HDFS_CONF_dfs_webhdfs_enabled: 'true'
+      HDFS_CONF_dfs_permissions_enabled: 'false'
+      HDFS_CONF_dfs_namenode_datanode_registration_ip___hostname___check: 'false'
+      YARN_CONF_yarn_log___aggregation___enable: 'true'
+      YARN_CONF_yarn_log_server_url: 'http://historyserver:8188/applicationhistory/logs/'
+      YARN_CONF_yarn_resourcemanager_recovery_enabled: 'true'
+      YARN_CONF_yarn_resourcemanager_store_class: 'org.apache.hadoop.yarn.server.resourcemanager.recovery.FileSystemRMStateStore'
+      YARN_CONF_yarn_resourcemanager_scheduler_class: 'org.apache.hadoop.yarn.server.resourcemanager.scheduler.capacity.CapacityScheduler'
+      YARN_CONF_yarn_scheduler_capacity_root_default_maximum___allocation___mb: '8192'
+      YARN_CONF_yarn_scheduler_capacity_root_default_maximum___allocation___vcores: '4'
+      YARN_CONF_yarn_resourcemanager_fs_state___store_uri: '/rmstate'
+      YARN_CONF_yarn_resourcemanager_system___metrics___publisher_enabled: 'true'
+      YARN_CONF_yarn_resourcemanager_hostname: 'resourcemanager'
+      YARN_CONF_yarn_resourcemanager_address: 'resourcemanager:8032'
+      YARN_CONF_yarn_resourcemanager_scheduler_address: 'resourcemanager:8030'
+      YARN_CONF_yarn_resourcemanager_resource__tracker_address: 'resourcemanager:8031'
+      YARN_CONF_yarn_timeline___service_enabled: 'true'
+      YARN_CONF_yarn_timeline___service_generic___application___history_enabled: 'true'
+      YARN_CONF_yarn_timeline___service_hostname: 'historyserver'
+      YARN_CONF_mapreduce_map_output_compress: 'true'
+      YARN_CONF_mapred_map_output_compress_codec: 'org.apache.hadoop.io.compress.SnappyCodec'
+      YARN_CONF_yarn_nodemanager_resource_memory___mb: '16384'
+      YARN_CONF_yarn_nodemanager_resource_cpu___vcores: '8'
+      YARN_CONF_yarn_nodemanager_disk___health___checker_max___disk___utilization___per___disk___percentage: '98.5'
+      YARN_CONF_yarn_nodemanager_remote___app___log___dir: '/app-logs'
+      YARN_CONF_yarn_nodemanager_aux___services: 'mapreduce_shuffle'
+      MAPRED_CONF_mapreduce_framework_name: 'yarn'
+      MAPRED_CONF_mapred_child_java_opts: '-Xmx4096m'
+      MAPRED_CONF_mapreduce_map_memory_mb: '4096'
+      MAPRED_CONF_mapreduce_reduce_memory_mb: '8192'
+      MAPRED_CONF_mapreduce_map_java_opts: '-Xmx3072m'
+      MAPRED_CONF_mapreduce_reduce_java_opts: '-Xmx6144m'
+      MAPRED_CONF_yarn_app_mapreduce_am_env: 'HADOOP_MAPRED_HOME=/opt/hadoop-3.2.1/'
+      MAPRED_CONF_mapreduce_map_env: 'HADOOP_MAPRED_HOME=/opt/hadoop-3.2.1/'
+      MAPRED_CONF_mapreduce_reduce_env: 'HADOOP_MAPRED_HOME=/opt/hadoop-3.2.1/'
+
+  # ----------------------------------------------------------------------------------------------------
+  # In Hadoop, a NodeManager is a component of the YARN (Yet Another Resource Negotiator) framework,
+  # and it is responsible for managing the resources, such as CPU, memory, and disk, on an individual
+  # node in the Hadoop cluster.
+  #
+  # Each machine in the cluster runs a NodeManager, and it communicates with the Resource Manager to
+  # obtain the resource allocation for that node. It is responsible for managing the containers that
+  # run on that node, which are the units of resource allocation for YARN. The NodeManager launches
+  # and monitors the containers, and it communicates with the Resource Manager to request additional
+  # resources or release unused resources as needed.
+  #
+  # The NodeManager is also responsible for monitoring the health of the node, such as the disk usage
+  # and the number of running processes, and it reports this information to the Resource Manager. If
+  # a NodeManager fails or becomes unavailable, the Resource Manager will detect the failure and
+  # redistribute the containers running on that node to other available nodes in the cluster.
+  # ----------------------------------------------------------------------------------------------------
+  nodemanager:
+    image: 'bde2020/hadoop-nodemanager:2.0.0-hadoop3.2.1-java8'
+    hostname: 'nodemanager'
+    ports:
+      - '8042:8042'
+    container_name: 'nodemanager'
+    depends_on:
+      - 'namenode'
+      - 'datanode1'
+      - 'datanode2'
+      - 'resourcemanager'
+    networks:
+      - 'hbase'
+    environment:
+      SERVICE_PRECONDITION: 'namenode:9870 datanode1:9864 datanode2:9864 resourcemanager:8088'
+      CORE_CONF_fs_defaultFS: 'hdfs://namenode:9000'
+      CORE_CONF_hadoop_http_staticuser_user: 'root'
+      CORE_CONF_hadoop_proxyuser_hue_hosts: '*'
+      CORE_CONF_hadoop_proxyuser_hue_groups: '*'
+      CORE_CONF_io_compression_codecs: 'org.apache.hadoop.io.compress.SnappyCodec'
+      HDFS_CONF_dfs_webhdfs_enabled: 'true'
+      HDFS_CONF_dfs_permissions_enabled: 'false'
+      HDFS_CONF_dfs_namenode_datanode_registration_ip___hostname___check: 'false'
+      YARN_CONF_yarn_log___aggregation___enable: 'true'
+      YARN_CONF_yarn_log_server_url: 'http://historyserver:8188/applicationhistory/logs/'
+      YARN_CONF_yarn_resourcemanager_recovery_enabled: 'true'
+      YARN_CONF_yarn_resourcemanager_store_class: 'org.apache.hadoop.yarn.server.resourcemanager.recovery.FileSystemRMStateStore'
+      YARN_CONF_yarn_resourcemanager_scheduler_class: 'org.apache.hadoop.yarn.server.resourcemanager.scheduler.capacity.CapacityScheduler'
+      YARN_CONF_yarn_scheduler_capacity_root_default_maximum___allocation___mb: '8192'
+      YARN_CONF_yarn_scheduler_capacity_root_default_maximum___allocation___vcores: '4'
+      YARN_CONF_yarn_resourcemanager_fs_state___store_uri: '/rmstate'
+      YARN_CONF_yarn_resourcemanager_system___metrics___publisher_enabled: 'true'
+      YARN_CONF_yarn_resourcemanager_hostname: 'resourcemanager'
+      YARN_CONF_yarn_resourcemanager_address: 'resourcemanager:8032'
+      YARN_CONF_yarn_resourcemanager_scheduler_address: 'resourcemanager:8030'
+      YARN_CONF_yarn_resourcemanager_resource__tracker_address: 'resourcemanager:8031'
+      YARN_CONF_yarn_timeline___service_enabled: 'true'
+      YARN_CONF_yarn_timeline___service_generic___application___history_enabled: 'true'
+      YARN_CONF_yarn_timeline___service_hostname: 'historyserver'
+      YARN_CONF_mapreduce_map_output_compress: 'true'
+      YARN_CONF_mapred_map_output_compress_codec: 'org.apache.hadoop.io.compress.SnappyCodec'
+      YARN_CONF_yarn_nodemanager_resource_memory___mb: '16384'
+      YARN_CONF_yarn_nodemanager_resource_cpu___vcores: '8'
+      YARN_CONF_yarn_nodemanager_disk___health___checker_max___disk___utilization___per___disk___percentage: '98.5'
+      YARN_CONF_yarn_nodemanager_remote___app___log___dir: '/app-logs'
+      YARN_CONF_yarn_nodemanager_aux___services: 'mapreduce_shuffle'
+      MAPRED_CONF_mapreduce_framework_name: 'yarn'
+      MAPRED_CONF_mapred_child_java_opts: '-Xmx4096m'
+      MAPRED_CONF_mapreduce_map_memory_mb: '4096'
+      MAPRED_CONF_mapreduce_reduce_memory_mb: '8192'
+      MAPRED_CONF_mapreduce_map_java_opts: '-Xmx3072m'
+      MAPRED_CONF_mapreduce_reduce_java_opts: '-Xmx6144m'
+      MAPRED_CONF_yarn_app_mapreduce_am_env: 'HADOOP_MAPRED_HOME=/opt/hadoop-3.2.1/'
+      MAPRED_CONF_mapreduce_map_env: 'HADOOP_MAPRED_HOME=/opt/hadoop-3.2.1/'
+      MAPRED_CONF_mapreduce_reduce_env: 'HADOOP_MAPRED_HOME=/opt/hadoop-3.2.1/'
+
+  # ----------------------------------------------------------------------------------------------------
+  # In Hadoop, the History Server is a component of the Hadoop MapReduce framework that provides a
+  # web-based user interface for accessing the logs and job history of completed MapReduce jobs in
+  # the Hadoop cluster.
+  #
+  # When a MapReduce job completes, the output is written to the Hadoop Distributed File System
+  # (HDFS), along with detailed logs of the job execution. The History Server provides a user
+  # interface for accessing this information and analyzing the performance of completed jobs.
+  #
+  # The History Server stores the job history information in a database, which can be queried
+  # using the web-based user interface. The user interface provides information about the input
+  # and output of each job, as well as detailed information about the execution of each task in
+  # the job. It also provides charts and graphs for visualizing the performance of the job, such
+  # as the time taken for each task and the resource usage of each task.
+  # ----------------------------------------------------------------------------------------------------
+  historyserver:
+    image: 'bde2020/hadoop-historyserver:2.0.0-hadoop3.2.1-java8'
+    container_name: 'historyserver'
+    hostname: 'historyserver'
+    ports:
+      - '8188:8188'
+    networks:
+      - 'hbase'
+    volumes:
+      - 'hadoop_historyserver:/hadoop/yarn/timeline'
+    depends_on:
+      - 'namenode'
+      - 'datanode1'
+      - 'datanode2'
+      - 'resourcemanager'
+    environment:
+      SERVICE_PRECONDITION: 'namenode:9870 datanode1:9864 datanode2:9864 resourcemanager:8088'
+      CORE_CONF_fs_defaultFS: 'hdfs://namenode:9000'
+      CORE_CONF_hadoop_http_staticuser_user: 'root'
+      CORE_CONF_hadoop_proxyuser_hue_hosts: '*'
+      CORE_CONF_hadoop_proxyuser_hue_groups: '*'
+      CORE_CONF_io_compression_codecs: 'org.apache.hadoop.io.compress.SnappyCodec'
+      HDFS_CONF_dfs_webhdfs_enabled: 'true'
+      HDFS_CONF_dfs_permissions_enabled: 'false'
+      HDFS_CONF_dfs_namenode_datanode_registration_ip___hostname___check: 'false'
+      YARN_CONF_yarn_log___aggregation___enable: 'true'
+      YARN_CONF_yarn_log_server_url: 'http://historyserver:8188/applicationhistory/logs/'
+      YARN_CONF_yarn_resourcemanager_recovery_enabled: 'true'
+      YARN_CONF_yarn_resourcemanager_store_class: 'org.apache.hadoop.yarn.server.resourcemanager.recovery.FileSystemRMStateStore'
+      YARN_CONF_yarn_resourcemanager_scheduler_class: 'org.apache.hadoop.yarn.server.resourcemanager.scheduler.capacity.CapacityScheduler'
+      YARN_CONF_yarn_scheduler_capacity_root_default_maximum___allocation___mb: '8192'
+      YARN_CONF_yarn_scheduler_capacity_root_default_maximum___allocation___vcores: '4'
+      YARN_CONF_yarn_resourcemanager_fs_state___store_uri: '/rmstate'
+      YARN_CONF_yarn_resourcemanager_system___metrics___publisher_enabled: 'true'
+      YARN_CONF_yarn_resourcemanager_hostname: 'resourcemanager'
+      YARN_CONF_yarn_resourcemanager_address: 'resourcemanager:8032'
+      YARN_CONF_yarn_resourcemanager_scheduler_address: 'resourcemanager:8030'
+      YARN_CONF_yarn_resourcemanager_resource__tracker_address: 'resourcemanager:8031'
+      YARN_CONF_yarn_timeline___service_enabled: 'true'
+      YARN_CONF_yarn_timeline___service_generic___application___history_enabled: 'true'
+      YARN_CONF_yarn_timeline___service_hostname: 'historyserver'
+      YARN_CONF_mapreduce_map_output_compress: 'true'
+      YARN_CONF_mapred_map_output_compress_codec: 'org.apache.hadoop.io.compress.SnappyCodec'
+      YARN_CONF_yarn_nodemanager_resource_memory___mb: '16384'
+      YARN_CONF_yarn_nodemanager_resource_cpu___vcores: '8'
+      YARN_CONF_yarn_nodemanager_disk___health___checker_max___disk___utilization___per___disk___percentage: '98.5'
+      YARN_CONF_yarn_nodemanager_remote___app___log___dir: '/app-logs'
+      YARN_CONF_yarn_nodemanager_aux___services: 'mapreduce_shuffle'
+      MAPRED_CONF_mapreduce_framework_name: 'yarn'
+      MAPRED_CONF_mapred_child_java_opts: '-Xmx4096m'
+      MAPRED_CONF_mapreduce_map_memory_mb: '4096'
+      MAPRED_CONF_mapreduce_reduce_memory_mb: '8192'
+      MAPRED_CONF_mapreduce_map_java_opts: '-Xmx3072m'
+      MAPRED_CONF_mapreduce_reduce_java_opts: '-Xmx6144m'
+      MAPRED_CONF_yarn_app_mapreduce_am_env: 'HADOOP_MAPRED_HOME=/opt/hadoop-3.2.1/'
+      MAPRED_CONF_mapreduce_map_env: 'HADOOP_MAPRED_HOME=/opt/hadoop-3.2.1/'
+      MAPRED_CONF_mapreduce_reduce_env: 'HADOOP_MAPRED_HOME=/opt/hadoop-3.2.1/'
+
+  # ----------------------------------------------------------------------------------------------------
+  # HBase is a distributed, non-relational database built on top of the Hadoop Distributed File System
+  # (HDFS). It is an open-source project that provides a scalable, fault-tolerant way to store and
+  # retrieve large amounts of sparse data.
+  #
+  # HBase is designed to store large amounts of data in a way that can be easily accessed and
+  # processed in near real-time. It is modeled after Google's Bigtable, a distributed database
+  # system used by Google to store structured data. HBase uses a key-value data model, where
+  # each row in the database is identified by a unique key and consists of multiple columns
+  # of data. Each row can have a different set of columns, and columns can be added or removed
+  # dynamically without affecting the rest of the data.
+  # ----------------------------------------------------------------------------------------------------
+  hbase:
+    image: 'bde2020/hbase-standalone:1.0.0-hbase1.2.6'
+    hostname: 'hbase'
+    container_name: 'hbase'
+    networks:
+      - 'hbase'
+    volumes:
+      - 'hbase_data:/hbase-data'
+      - 'hbase_zookeeper_data:/zookeeper-data'
+    ports:
+      - '16000:16000'
+      - '16010:16010'
+      - '16020:16020'
+      - '16030:16030'
+      - '2888:2888'
+      - '3888:3888'
+      - '2182:2182'
+      - '9090:9090'
+    environment:
+      SERVICE_PRECONDITION: "namenode:9870 datanode1:9864 datanode2:9864"
+      HBASE_CONF_hbase_rootdir: 'hdfs://namenode:9000/hbase'
+      HBASE_CONF_hbase_cluster_distributed: 'false'
+      HBASE_CONF_hbase_zookeeper_property_dataDir: '/zookeeper-data'
+      HBASE_CONF_hbase_zookeeper_quorum: 'hbase'
+      HBASE_CONF_hbase_master_port: 16000
+      HBASE_CONF_hbase_master_info_port: 16010
+      HBASE_CONF_hbase_regionserver_port: 16020
+      HBASE_CONF_hbase_regionserver_info_port: 16030
+      HBASE_CONF_hbase_zookeeper_peerport: 2888
+      HBASE_CONF_hbase_zookeeper_leaderport: 3888
+      HBASE_CONF_hbase_zookeeper_property_clientPort: 2182
