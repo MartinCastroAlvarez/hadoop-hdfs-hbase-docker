@@ -1,5 +1,5 @@
 # Hadoop Hbase Docker
-Running jobs using Docker
+Running Hbase using Docker
 
 ![img](./wallpaper.jpg)
 
